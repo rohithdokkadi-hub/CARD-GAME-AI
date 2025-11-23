@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Card Game AI - Intelligent Survival Strategy</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .input-section, .output-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+        }
+
+        .section-title {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        textarea {
+            height: 120px;
+            resize: vertical;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(52, 152, 219, 0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #95a5a6, #7f8c8d);
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 10px 20px rgba(149, 165, 166, 0.3);
+        }
+
+        .result-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 5px solid #3498db;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .result-card.highlight {
+            border-left-color: #e74c3c;
+            background: #fff5f5;
+        }
+
+        .result-card.success {
+            border-left-color: #27ae60;
+            background: #f0fff4;
+        }
+
+        .card-display {
+            background: #2c3e50;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.2em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .prediction-item {
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #3498db;
+        }
+
+        .confidence-bar {
+            height: 10px;
+            background: #ecf0f1;
+            border-radius: 5px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #e74c3c, #f39c12, #27ae60);
+            border-radius: 5px;
+            transition: width 0.5s;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #e74c3c;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        .success-message {
+            background: #27ae60;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        .card-suit {
+            display: inline-block;
+            margin-left: 10px;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .suit-S { color: #2c3e50; }
+        .suit-H { color: #e74c3c; }
+        .suit-D { color: #3498db; }
+        .suit-C { color: #27ae60; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Card Game AI</h1>
+            <div class="subtitle">Intelligent Survival Strategy with Spades as Trumps</div>
+        </div>
+
+        <div class="content">
+            <div class="input-section">
+                <h2 class="section-title">Game Input</h2>
+                
+                <div class="form-group">
+                    <label for="hand">Your Hand (P1):</label>
+                    <input type="text" id="hand" placeholder="Enter cards separated by commas (e.g., AS,10H,3D,KC)" value="AS,10H,3D,KC,2S,7H,9D">
+                </div>
+
+                <div class="form-group">
+                    <label for="playedCards">Already Played Cards:</label>
+                    <textarea id="playedCards" placeholder="Enter cards that have already been played (comma-separated)"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="currentRound">Current Round:</label>
+                    <input type="number" id="currentRound" value="1" min="1" max="13">
+                </div>
+
+                <div class="form-group">
+                    <label for="currentLeader">Current Leader:</label>
+                    <select id="currentLeader">
+                        <option value="P1">P1 (You)</option>
+                        <option value="P2">P2</option>
+                        <option value="P3">P3</option>
+                        <option value="P4">P4</option>
+                    </select>
+                </div>
+
+                <button class="btn" onclick="analyzeGame()">🎯 Get AI Analysis</button>
+                
+                <div class="form-group" style="margin-top: 30px;">
+                    <h3>Specific Card Analysis</h3>
+                    <input type="text" id="specificCard" placeholder="Enter a card to analyze (e.g., AS)" value="AS">
+                    <button class="btn btn-secondary" onclick="analyzeSpecificCard()">Analyze This Card</button>
+                </div>
+            </div>
+
+            <div class="output-section">
+                <h2 class="section-title">AI Analysis Results</h2>
+                
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Analyzing your game strategy...</p>
+                </div>
+
+                <div id="results">
+                    <div class="result-card success" id="bestCardResult">
+                        <h3>🔥 BEST CARD TO PLAY</h3>
+                        <div class="card-display" id="bestCardDisplay">-</div>
+                        <p id="bestCardReason">Analysis will appear here...</p>
+                    </div>
+
+                    <div class="result-card" id="handAnalysis">
+                        <h3>📊 HAND ANALYSIS</h3>
+                        <div id="handAnalysisContent">-</div>
+                    </div>
+
+                    <div class="result-card" id="opponentPredictions">
+                        <h3>🤖 OPPONENT PREDICTIONS</h3>
+                        <div id="opponentPredictionsContent">-</div>
+                    </div>
+
+                    <div class="result-card" id="survivalAnalysis">
+                        <h3>🔮 SURVIVAL STRATEGY</h3>
+                        <div id="survivalAnalysisContent">-</div>
+                    </div>
+
+                    <div class="result-card highlight" id="specificCardAnalysis">
+                        <h3>🎴 SPECIFIC CARD ANALYSIS</h3>
+                        <div id="specificCardAnalysisContent">Select a card to analyze its performance</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.opacity = '0.5';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('results').style.opacity = '1';
+        }
+
+        function parseCardInput(input) {
+            return input.split(',').map(card => card.trim().toUpperCase()).filter(card => card);
+        }
+
+        function getSuitClass(suit) {
+            return suit-${suit};
+        }
+
+        function formatCardDisplay(card) {
+            if (!card) return '-';
+            const suit = card.slice(-1);
+            const rank = card.slice(0, -1);
+            return ${rank}<span class="card-suit ${getSuitClass(suit)}">${suit}</span>;
+        }
+
+        async function analyzeGame() {
+            showLoading();
+            
+            const hand = parseCardInput(document.getElementById('hand').value);
+            const playedCards = parseCardInput(document.getElementById('playedCards').value);
+            const currentRound = parseInt(document.getElementById('currentRound').value);
+            const currentLeader = document.getElementById('currentLeader').value;
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        hand: hand,
+                        played_cards: playedCards,
+                        round: currentRound,
+                        leader: currentLeader,
+                        tricks_won: {P1: 0, P2: 0, P3: 0, P4: 0},
+                        void_info: {P1: [], P2: [], P3: [], P4: []}
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Display best card
+                document.getElementById('bestCardDisplay').innerHTML = formatCardDisplay(data.best_card);
+                document.getElementById('bestCardReason').textContent = data.best_reason;
+
+                // Display hand analysis
+                document.getElementById('handAnalysisContent').innerHTML = `
+                    Total cards: ${data.hand_analysis.total_cards}<br>
+                    Spades: ${data.hand_analysis.spades_count}<br>
+                    High cards (J+): ${data.hand_analysis.high_cards_count}
+                `;
+
+                // Display opponent predictions
+                document.getElementById('opponentPredictionsContent').innerHTML = 
+                    data.opponent_predictions.replace(/\n/g, '<br>');
+
+                // Display survival analysis
+                document.getElementById('survivalAnalysisContent').innerHTML = 
+                    data.survival_analysis.replace(/\n/g, '<br>');
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function analyzeSpecificCard() {
+            const specificCard = document.getElementById('specificCard').value.trim().toUpperCase();
+            const hand = parseCardInput(document.getElementById('hand').value);
+            const playedCards = parseCardInput(document.getElementById('playedCards').value);
+            const currentRound = parseInt(document.getElementById('currentRound').value);
+
+            if (!specificCard) {
+                alert('Please enter a card to analyze');
+                return;
+            }
+
+            if (!hand.includes(specificCard)) {
+                alert('This card is not in your hand!');
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const response = await fetch('/analyze_card', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        card: specificCard,
+                        hand: hand,
+                        played_cards: playedCards,
+                        round: currentRound,
+                        void_info: {P1: [], P2: [], P3: [], P4: []}
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                document.getElementById('specificCardAnalysisContent').innerHTML = `
+                    <div class="card-display">${formatCardDisplay(data.card)}</div>
+                    <p><strong>Value:</strong> ${data.value}</p>
+                    <p><strong>Suit:</strong> <span class="${getSuitClass(data.suit)}">${data.suit}</span></p>
+                    <p><strong>Confidence:</strong> ${data.confidence}%</p>
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width: ${data.confidence}%"></div>
+                    </div>
+                    <div class="predictions">
+                        ${data.predictions.map(pred => <div class="prediction-item">${pred}</div>).join('')}
+                    </div>
+                `;
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Initialize with some example data
+        document.addEventListener('DOMContentLoaded', function() {
+            // You can add any initialization code here
+        });
+    </script>
+</body>
+</html>

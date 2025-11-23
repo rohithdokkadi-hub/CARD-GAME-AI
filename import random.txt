@@ -1,0 +1,527 @@
+import random
+from collections import OrderedDict
+
+# ==========================================
+# 1. CONFIGURATION
+# ==========================================
+
+# Rank Mapping: 2 is low, Ace (14) is high
+RANK_VALUES = {
+    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+    '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14
+}
+SUITS = ['S', 'H', 'D', 'C'] # Spades (S) are trumps
+PLAYER_ORDER = ['P1', 'P2', 'P3', 'P4']
+
+def create_deck():
+    """Creates a standard 52-card deck."""
+    ranks = list(RANK_VALUES.keys())
+    return [r + s for r in ranks for s in SUITS]
+
+# ==========================================
+# 2. CORE GAME LOGIC
+# ==========================================
+
+def parse_card(card_str):
+    """Splits a card string (e.g., '10S') into value (10) and suit ('S')."""
+    card_str = str(card_str).strip().upper()
+    if not card_str:
+        return 0, 'None' 
+    
+    # Handle ranks '2' through '9', 'J', 'Q', 'K', 'A'
+    if len(card_str) == 2:
+        rank_str = card_str[0]
+        suit = card_str[1]
+    # Handle '10' rank
+    elif len(card_str) == 3 and card_str.startswith('10'):
+        rank_str = '10'
+        suit = card_str[2]
+    else:
+        return 0, 'None'
+
+    value = RANK_VALUES.get(rank_str, 0)
+    if value == 0 or suit not in SUITS:
+        return 0, 'None' # Invalid card
+        
+    return value, suit
+
+def determine_winner(moves_dict):
+    """Determines the winner of a round based on the highest Spade or highest Lead Suit."""
+    if not moves_dict:
+        return None, "No moves played"
+
+    # Get the player who led the trick and the lead card/suit
+    leader = list(moves_dict.keys())[0]
+    lead_card = moves_dict[leader]
+    lead_value, lead_suit = parse_card(lead_card)
+    
+    winning_player = leader
+    winning_value = lead_value
+    winning_is_spade = (lead_suit == 'S')
+    reason = f"Highest {lead_suit}"
+
+    # Iterate through the remaining moves
+    for player, card in moves_dict.items():
+        if player == leader:
+            continue
+
+        card_value, card_suit = parse_card(card)
+
+        if card_suit == 'S':
+            # Case 1: Trump (Spade) is played
+            if winning_is_spade:
+                if card_value > winning_value:
+                    winning_player = player
+                    winning_value = card_value
+                    winning_is_spade = True
+                    reason = "Highest Spade"
+            else:
+                # First Spade beats current non-Spade winner
+                winning_player = player
+                winning_value = card_value
+                winning_is_spade = True
+                reason = "Spade Cut"
+        elif not winning_is_spade and card_suit == lead_suit:
+            # Case 2: Followed suit (Non-Spade)
+            if card_value > winning_value:
+                winning_player = player
+                winning_value = card_value
+                reason = f"Highest {lead_suit}"
+        # Case 3: Off-suit, non-Spade card (trash) - ignored
+
+    return winning_player, reason
+
+def deduce_voids(lead_suit, moves, voids):
+    """
+    Updates the 'voids' dictionary based on who failed to follow the lead suit.
+    FIXED: If a player does not play the lead suit, they are void in it.
+    """
+    for player, card in moves.items():
+        played_suit = parse_card(card)[1]
+        
+        # If the player did not follow the lead suit, they are void in that suit
+        if played_suit != lead_suit:
+            if lead_suit not in voids[player]:
+                voids[player].append(lead_suit)
+    
+    return voids
+
+# ==========================================
+# 3. PREDICTION LOGIC (P1 AI)
+# ==========================================
+
+def get_best_card_prediction(user_hand, all_played_cards, current_round, current_leader, tricks_won):
+    """
+    Predicts the best card for P1 to play. 
+    NOTE: When P1 is following, this prediction is less accurate as the lead suit is unknown.
+    """
+    if not user_hand:
+        return None, "No cards in hand"
+    
+    # Calculate remaining cards in deck
+    full_deck = create_deck()
+    remaining_cards = [c for c in full_deck if c not in all_played_cards and c not in user_hand]
+    
+    # If P1 is the leader
+    if current_leader == 'P1':
+        return get_best_lead_card(user_hand, remaining_cards, current_round)
+    else:
+        # P1 is following, but lead_card is NOT provided, so we use a simplified 'safe' strategy.
+        return get_best_follow_card_simplified(user_hand, remaining_cards)
+
+
+def get_best_lead_card(user_hand, remaining_cards, current_round):
+    """
+    Finds the best card to lead with as P1. (Original logic retained)
+    """
+    best_card = None
+    best_reason = ""
+    max_score = -1
+    
+    for card in user_hand:
+        card_value, card_suit = parse_card(card)
+        score = 0
+        
+        # Score based on card strength and situation
+        if card_suit == 'S':
+            # Spade strategy
+            remaining_higher_spades = [c for c in remaining_cards if parse_card(c)[1] == 'S' and parse_card(c)[0] > card_value]
+            if not remaining_higher_spades:
+                score = 95  # Highest spade remaining
+                reason = f"Highest remaining spade - guaranteed win if spades are played"
+            elif len(remaining_higher_spades) <= 1:
+                score = 70  # Strong spade
+                reason = f"Strong spade, only {len(remaining_higher_spades)} higher spades remain"
+            else:
+                score = 40  # Moderate spade
+                reason = f"Moderate spade, {len(remaining_higher_spades)} higher spades remain"
+                
+            # Adjust for round
+            if current_round <= 6:
+                score -= 10  # Conserve spades early
+                reason += " (conserve in early game)"
+            else:
+                score += 5   # Use spades late
+                reason += " (use in late game)"
+                
+        else:
+            # Non-spade strategy
+            remaining_higher_same_suit = [c for c in remaining_cards if parse_card(c)[1] == card_suit and parse_card(c)[0] > card_value]
+            remaining_spades = len([c for c in remaining_cards if parse_card(c)[1] == 'S'])
+            
+            if not remaining_higher_same_suit:
+                score = 80  # Highest in suit
+                reason = f"Highest remaining {card_suit} - will win suit if no spades"
+            elif len(remaining_higher_same_suit) <= 2:
+                score = 60  # Strong in suit
+                reason = f"Strong {card_suit}, only {len(remaining_higher_same_suit)} higher cards remain"
+            else:
+                score = 30  # Weak in suit
+                reason = f"Weak {card_suit}, {len(remaining_higher_same_suit)} higher cards remain"
+            
+            # Penalty for spade risk
+            spade_risk = min(40, remaining_spades * 3)
+            score -= spade_risk
+            reason += f" ({remaining_spades} spades can trump)"
+            
+            # Safe lead bonus for low cards
+            if card_value <= 7:
+                score += 15
+                reason += " - safe low lead"
+        
+        # Update best card
+        if score > max_score:
+            max_score = score
+            best_card = card
+            best_reason = reason
+    
+    return best_card, best_reason
+
+
+def get_best_follow_card_simplified(user_hand, remaining_cards):
+    """
+    Simplified following strategy when the lead suit is UNKNOWN (as requested).
+    Goal: Conserve winning cards, discard lowest trash.
+    """
+    # Sort cards by value (ascending) for safe discards
+    safe_cards = []
+    valuable_cards = []
+    
+    for card in user_hand:
+        card_value, card_suit = parse_card(card)
+        
+        # Identify high cards
+        if card_suit == 'S':
+            remaining_higher_spades = [c for c in remaining_cards if parse_card(c)[1] == 'S' and parse_card(c)[0] > card_value]
+            if not remaining_higher_spades:
+                valuable_cards.append((card, card_value, "Highest remaining spade - SAVE IT!"))
+            else:
+                safe_cards.append((card, card_value, f"Spade but {len(remaining_higher_spades)} higher remain (potential discard)"))
+        else:
+            remaining_higher_same_suit = [c for c in remaining_cards if parse_card(c)[1] == card_suit and parse_card(c)[0] > card_value]
+            if not remaining_higher_same_suit:
+                valuable_cards.append((card, card_value, f"Highest remaining {card_suit} - SAVE IT!"))
+            else:
+                safe_cards.append((card, card_value, f"{card_suit} with {len(remaining_higher_same_suit)} higher cards (potential discard)"))
+    
+    # Priority: Play lowest card from the 'safe' list
+    if safe_cards:
+        safe_cards.sort(key=lambda x: x[1])  # Sort by value ascending
+        best_card = safe_cards[0][0]
+        best_reason = f"Safe discard: {safe_cards[0][2]} - conserve high cards. Cannot predict true winner without lead suit."
+    elif valuable_cards:
+        # If only valuable cards remain, play the least valuable one
+        valuable_cards.sort(key=lambda x: x[1])  # Sort by value ascending
+        best_card = valuable_cards[0][0]
+        best_reason = f"Forced to play a high card: {valuable_cards[0][2]} - risk losing it to a higher card or spade cut."
+    else:
+        # Fallback (should not happen if hand isn't empty)
+        user_hand.sort(key=lambda c: parse_card(c)[0])
+        best_card = user_hand[0]
+        best_reason = "Lowest card as fallback (very low card count)"
+        
+    return best_card, best_reason
+
+
+def predict_opponent_moves(user_hand, all_played_cards, current_round):
+    """
+    Predicts what cards opponents might play based on remaining cards and game state. (Original logic retained)
+    """
+    full_deck = create_deck()
+    remaining_cards = [c for c in full_deck if c not in all_played_cards and c not in user_hand]
+    
+    predictions = []
+    predictions.append("🤖 OPPONENT CARD PREDICTIONS:")
+    
+    # Analyze remaining high cards that opponents likely have
+    high_remaining_cards = [c for c in remaining_cards if parse_card(c)[0] >= 11]
+    
+    if high_remaining_cards:
+        predictions.append(f"Opponents likely have these high cards:")
+        for card in sorted(high_remaining_cards, key=lambda c: parse_card(c)[0], reverse=True)[:6]:
+            card_value, card_suit = parse_card(card)
+            predictions.append(f"  {card} (Value: {card_value})")
+    else:
+        predictions.append("No high cards remaining - opponents have weak hands")
+    
+    # Predict spade strength
+    remaining_spades = [c for c in remaining_cards if parse_card(c)[1] == 'S']
+    if remaining_spades:
+        highest_remaining_spade = max(remaining_spades, key=lambda c: parse_card(c)[0])
+        highest_value = parse_card(highest_remaining_spade)[0]
+        predictions.append(f"💎 Highest remaining spade: {highest_remaining_spade} (Value: {highest_value})")
+    
+    return "\n".join(predictions)
+
+
+def analyze_survival_strategy(player_hand, all_played_cards, void_info, current_round, tricks_won):
+    """
+    Analyzes the best survival strategy based on current hand and game state. (Original logic retained)
+    """
+    if not player_hand:
+        return "No cards left in hand."
+    
+    analysis = []
+    analysis.append("=== SURVIVAL STRATEGY ANALYSIS ===")
+    
+    # Calculate remaining cards in deck
+    full_deck = create_deck()
+    remaining_cards = [c for c in full_deck if c not in all_played_cards and c not in player_hand]
+    
+    # Analyze your current hand strength
+    spades_in_hand = [c for c in player_hand if parse_card(c)[1] == 'S']
+    high_spades = [c for c in spades_in_hand if parse_card(c)[0] >= 11]  # J, Q, K, A
+    low_spades = [c for c in spades_in_hand if parse_card(c)[0] < 11]
+    
+    analysis.append(f"\nYour Hand Analysis:")
+    analysis.append(f"Total cards: {len(player_hand)}")
+    analysis.append(f"Spades: {len(spades_in_hand)} (High: {len(high_spades)}, Low: {len(low_spades)})")
+    
+    # Analyze remaining high cards in the game
+    remaining_high_cards = {
+        'S': [c for c in remaining_cards if parse_card(c)[1] == 'S' and parse_card(c)[0] >= 11],
+        'H': [c for c in remaining_cards if parse_card(c)[1] == 'H' and parse_card(c)[0] >= 11],
+        'D': [c for c in remaining_cards if parse_card(c)[1] == 'D' and parse_card(c)[0] >= 11],
+        'C': [c for c in remaining_cards if parse_card(c)[1] == 'C' and parse_card(c)[0] >= 11]
+    }
+    
+    analysis.append(f"\nRemaining High Cards (J,Q,K,A) by suit:")
+    for suit in SUITS:
+        analysis.append(f"  {suit}: {len(remaining_high_cards[suit])} cards")
+    
+    # Critical survival predictions
+    analysis.append(f"\n🔮 CRITICAL PREDICTIONS:")
+    
+    # 1. Spade control analysis
+    your_highest_spade = max([parse_card(c)[0] for c in spades_in_hand]) if spades_in_hand else 0
+    remaining_higher_spades = [c for c in remaining_cards if parse_card(c)[1] == 'S' and parse_card(c)[0] > your_highest_spade]
+    
+    if your_highest_spade > 0:
+        if remaining_higher_spades:
+            analysis.append(f"⚠ Warning: {len(remaining_higher_spades)} higher spades remain in game")
+            analysis.append(f"    Your highest spade: {your_highest_spade}, Higher remaining: {[parse_card(c)[0] for c in remaining_higher_spades]}")
+        else:
+            analysis.append(f"✅ Excellent! You have the highest remaining spade (value: {your_highest_spade})")
+    
+    return "\n".join(analysis)
+
+
+def predict_specific_card_performance(card_to_analyze, user_hand, all_played_cards, current_void_info, round_num):
+    """
+    Provides a simple prediction of a card's chance of winning/losing based on remaining cards. (Retained)
+    """
+    card_value, card_suit = parse_card(card_to_analyze)
+    predictions = []
+    
+    full_deck = create_deck()
+    remaining_cards = [c for c in full_deck if c not in all_played_cards and c not in user_hand]
+    
+    # Check for higher cards in the same suit (including spades)
+    higher_same_suit = [c for c in remaining_cards 
+                        if parse_card(c)[1] == card_suit and parse_card(c)[0] > card_value]
+    
+    # Check for remaining spades if the card is not a spade
+    remaining_spades = [c for c in remaining_cards if parse_card(c)[1] == 'S']
+    
+    # --- Confidence Calculation ---
+    confidence = 100
+    
+    if card_suit == 'S':
+        # Spade analysis
+        if higher_same_suit:
+            predictions.append(f"❌ Likely to be beaten. {len(higher_same_suit)} higher spades remain.")
+            confidence = max(0, 100 - (len(higher_same_suit) * 20))
+        else:
+            predictions.append("✅ Guaranteed win on any trick where spades are played.")
+            confidence = 100
+            
+    else:
+        # Non-spade analysis
+        if not higher_same_suit:
+            predictions.append(f"✅ Will win any trick of {card_suit} suit if not trumped.")
+            confidence = 90
+        else:
+            predictions.append(f"⚠ Likely beaten in suit. {len(higher_same_suit)} higher {card_suit} cards remain.")
+            confidence = max(0, 90 - (len(higher_same_suit) * 15))
+            
+        if remaining_spades:
+            predictions.append(f"💣 High risk of being trumped. {len(remaining_spades)} spades remain.")
+            confidence = max(0, confidence - (len(remaining_spades) * 2))
+    
+    return confidence, predictions
+
+
+# ==========================================
+# 4. MAIN GAME FLOW WITH INTELLIGENT PREDICTION
+# ==========================================
+
+def process_round_with_intelligent_prediction(round_num, current_leader, all_cards_played, current_void_info, tricks_won):
+    """Handles manual input with intelligent prediction at each round."""
+    
+    print(f"\n--- ROUND {round_num} ---")
+    print(f"Current Leader: {current_leader}")
+    print(f"Tricks won so far: {tricks_won}")
+    print(f"Cards played so far: {len(all_cards_played)} cards")
+    
+    # --- Prediction Block (No lead card input when P1 is follower) ---
+    predict = input("Do you want intelligent survival analysis? (yes/no): ").strip().lower()
+    
+    if predict == 'yes':
+        # Get user's hand (P1)
+        hand_input = input("Enter your current hand (comma-separated, e.g., AS,10H,3D,KC): ").strip().upper()
+        user_hand = [c.strip() for c in hand_input.split(',')]
+        
+        # Basic validation for hand
+        if not user_hand or not parse_card(user_hand[0])[0]:
+            print("Error: Invalid or empty hand input. Skipping prediction.")
+        else:
+            print(f"\n🎯 Analyzing P1's survival strategy...")
+            print(f"Your hand: {sorted(user_hand, key=lambda c: (parse_card(c)[1], parse_card(c)[0]))}")
+
+            # Get BEST CARD PREDICTION (will use simplified logic if P1 is not leader)
+            best_card, best_reason = get_best_card_prediction(
+                user_hand, all_cards_played, round_num, current_leader, tricks_won
+            )
+            
+            print(f"\n🔥 BEST CARD PREDICTION FOR P1:")
+            print(f"🎯 PLAY THIS CARD: {best_card}")
+            print(f"📝 WHY: {best_reason}")
+            
+            # Show card details
+            if best_card:
+                card_value, card_suit = parse_card(best_card)
+                print(f"📊 Card Details: {best_card} (Value: {card_value}, {card_suit} suit)")
+            
+            # Get opponent predictions
+            opponent_predictions = predict_opponent_moves(user_hand, all_cards_played, round_num)
+            print(f"\n{opponent_predictions}")
+            
+            # Get intelligent survival analysis
+            survival_analysis = analyze_survival_strategy(
+                user_hand, all_cards_played, current_void_info, round_num, tricks_won
+            )
+            print(f"\n{survival_analysis}")
+            
+            # Specific card performance prediction
+            print(f"\n🎴 SPECIFIC CARD PERFORMANCE PREDICTION:")
+            card_to_analyze = input("Enter a specific card from your hand to analyze (e.g., AS, 10H): ").strip().upper()
+            if card_to_analyze in user_hand:
+                confidence, card_predictions = predict_specific_card_performance(
+                    card_to_analyze, user_hand, all_cards_played, current_void_info, round_num
+                )
+                card_value, card_suit = parse_card(card_to_analyze)
+                print(f"\n📊 Analysis for {card_to_analyze} (Value: {card_value}, Suit: {card_suit}):")
+                print(f"Confidence Level: {confidence}%")
+                for prediction in card_predictions:
+                    print(f"  {prediction}")
+            else:
+                print(f"Card {card_to_analyze} not found in your hand.")
+
+    
+    # --- Actual Round Play Input ---
+    
+    start_idx = PLAYER_ORDER.index(current_leader)
+    current_turn_order = PLAYER_ORDER[start_idx:] + PLAYER_ORDER[:start_idx]
+    
+    # Prompt now includes the explicit order
+    cards_input = input(f"\nEnter the 4 cards played in order ({', '.join(current_turn_order)}): ").strip().upper()
+    played_cards_list = [c.strip() for c in cards_input.split(',')]
+
+    if len(played_cards_list) != 4:
+        print("Error: Must input exactly 4 cards separated by commas.")
+        return None, current_void_info, None
+
+    moves = OrderedDict()
+    lead_suit = None
+    
+    for i, p_name in enumerate(current_turn_order):
+        card = played_cards_list[i]
+        
+        # Basic validation
+        val, suit = parse_card(card)
+        if val == 0:
+            print(f"Error: Invalid card '{card}' provided.")
+            return None, current_void_info, None
+
+        # Set lead suit from first card
+        if i == 0:
+            lead_suit = suit
+        
+        # Check if card has already been played in previous rounds
+        if card in all_cards_played:
+            print(f"❌ ERROR: Card '{card}' has already been played in previous rounds!")
+            return None, current_void_info, None
+            
+        moves[p_name] = card
+
+    # Add all cards to played cards list after validation
+    for card in played_cards_list:
+        all_cards_played.append(card)
+
+    # Determine the winner and next leader
+    winner, reason = determine_winner(moves)
+    print(f"\n🏆 WINNER OF ROUND {round_num}: {winner} (Logic: {reason})")
+    
+    # DEDUCE VOIDS based on the play
+    current_void_info = deduce_voids(lead_suit, moves, current_void_info)
+    
+    return winner, current_void_info, all_cards_played
+
+def play_game_with_intelligent_predictions():
+    print("\n=== CARD GAME: INTELLIGENT SURVIVAL STRATEGY (Simplified Follower AI) ===")
+    print("Rules: Spades are Trumps. Must follow suit if possible.")
+    print("🎯 YOU ARE PLAYER 1 (P1)")
+    
+    all_cards_played = []
+    current_leader = 'P1'
+    void_info = {'P1': [], 'P2': [], 'P3': [], 'P4': []}
+    
+    tricks_won = {'P1': 0, 'P2': 0, 'P3': 0, 'P4': 0}
+
+    # Play all 13 rounds with intelligent prediction option
+    for round_num in range(1, 14):
+        new_leader, void_info, all_cards_played = process_round_with_intelligent_prediction(
+            round_num, current_leader, all_cards_played, void_info, tricks_won
+        )
+        if new_leader is None:
+            print("\nGame terminated due to input error.")
+            return
+        
+        # The winner of the trick is the leader of the next trick
+        current_leader = new_leader
+        tricks_won[current_leader] += 1
+        
+        print(f"\nRound {round_num} completed.")
+        print(f"Current void deductions: {void_info}")
+        print(f"Tricks won so far: {tricks_won}")
+
+    print("\n" + "=" * 60)
+    print("GAME COMPLETE.")
+    print("FINAL SCOREBOARD (13 Rounds Total):")
+    for player, tricks in tricks_won.items():
+        print(f"  {player}: {tricks} tricks")
+    print("-" * 20)
+    print(f"Final Void Deductions: {void_info}")
+
+if name == "main":
+    play_game_with_intelligent_predictions()
